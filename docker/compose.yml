@@ -1,0 +1,45 @@
+# The PHP matrix for the package tests.
+#
+# RUN SEQUENTIALLY ONLY: `make test-matrix`, not `compose up`.
+#
+# The reason: both services bind-mount the same sources, and `composer update`
+# writes composer.lock right there. Containers started at once fight over one
+# file, and the matrix turns green and meaningless, because what actually runs
+# is one resolved set of dependencies instead of two.
+#
+# Separately: `compose up --abort-on-container-exit` stops ALL services as soon
+# as the first one exits, including one that exited successfully. That is not a
+# full matrix run, it is a matrix run cut short at the very first finish.
+#
+# Per-version vendor volumes are deliberately NOT here. They solved the parallel
+# run problem, which we gave up on, and in exchange they broke the build: a
+# mounted volume is a mount point, and composer fails with
+# "Could not delete /pkg/vendor" when it decides to reinstall the whole tree.
+# Running sequentially already gives isolation, and `rm -f composer.lock` forces
+# an honest resolve on every version.
+
+x-test: &test
+  working_dir: /pkg
+  environment:
+    COMPOSER_FLAGS: ${COMPOSER_FLAGS:---prefer-stable}
+  volumes:
+    - ..:/pkg
+  command: >
+    sh -c "rm -f composer.lock &&
+           composer update $${COMPOSER_FLAGS} --no-interaction --no-progress &&
+           vendor/bin/pest"
+
+services:
+  php84:
+    <<: *test
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args: { PHP_VERSION: "8.4" }
+
+  php85:
+    <<: *test
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args: { PHP_VERSION: "8.5" }

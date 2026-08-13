@@ -1,0 +1,22 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: max
+
+    paths:
+        - src
+        - config
+
+    tmpDir: build/phpstan
+
+    ignoreErrors:
+        # Larastan forbids env() outside the config directory, the very rule the
+        # whole design of this package is built around. Here it fires falsely:
+        # the file IS in config/, it is just a package config rather than an
+        # application one, and the rule's heuristic does not recognise that
+        # layout. The exception is targeted, not a baseline: any other env() call
+        # outside a config file is still caught.
+        -
+            message: "#Called 'env' outside of the config directory#"
+            path: config/filament-app-version.php
