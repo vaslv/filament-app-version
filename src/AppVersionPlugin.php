@@ -7,6 +7,8 @@ namespace Vaslv\FilamentAppVersion;
 use Closure;
 use Filament\Contracts\Plugin;
 use Filament\Panel;
+use Filament\Support\Enums\Size;
+use Filament\Support\Enums\VerticalAlignment;
 use Filament\View\PanelsRenderHook;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Log;
@@ -50,8 +52,12 @@ class AppVersionPlugin implements Plugin
     //
     // unicode-bidi + direction: a version identifier is a machine token, and
     // in an RTL panel it must not be reordered or have its brackets mirrored.
-    protected const string LAYOUT = 'display:inline-block;vertical-align:middle;margin-inline-start:0.5rem;'
-        .'font-size:0.75rem;line-height:1rem;font-weight:600;letter-spacing:0.02em;'
+    //
+    // Font size, line height and vertical alignment are NOT here: they depend
+    // on size() and verticalAlignment(), and this constant is the part that
+    // does not.
+    protected const string LAYOUT = 'display:inline-block;margin-inline-start:0.5rem;'
+        .'font-weight:600;letter-spacing:0.02em;'
         .'font-variant-numeric:tabular-nums;'
         .'white-space:nowrap;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;'
         .'unicode-bidi:isolate;direction:ltr;';
@@ -82,6 +88,10 @@ class AppVersionPlugin implements Plugin
     protected bool $badge = false;
 
     protected bool $neutral = false;
+
+    protected Size $size = Size::Medium;
+
+    protected VerticalAlignment $verticalAlignment = VerticalAlignment::Center;
 
     protected ?string $view = null;
 
@@ -200,6 +210,71 @@ class AppVersionPlugin implements Plugin
     public function neutral(bool $condition = true): static
     {
         $this->neutral = $condition;
+
+        return $this;
+    }
+
+    /**
+     * How big the chip is: Size::ExtraSmall … Size::ExtraLarge, or 'xs' … 'xl'.
+     *
+     * Scales the text always, and the pill's padding and corner radius when
+     * badge() is on. Medium is what the chip looked like before this method
+     * existed, so an upgrade changes nothing until it is called.
+     *
+     * An unknown string is ignored with a warning under APP_DEBUG rather than
+     * throwing: a mistyped size is a cosmetic detail, and this package does
+     * not take an admin panel down over one.
+     */
+    public function size(Size|string $size): static
+    {
+        if (is_string($size)) {
+            $resolved = Size::tryFrom($size);
+
+            if ($resolved === null) {
+                $this->warn("size('{$size}') is not one of xs, sm, md, lg, xl; it was ignored.");
+
+                return $this;
+            }
+
+            $size = $resolved;
+        }
+
+        $this->size = $size;
+
+        return $this;
+    }
+
+    /**
+     * Where the chip sits vertically: Start (top), Center, End (bottom), or
+     * the strings 'start', 'center' and 'end'.
+     *
+     * The reference is the row the chip is rendered into, not the whole bar.
+     * On the topbar that row is as tall as the logo, so Start puts the chip
+     * level with the top of the logo; the sidebar drawer header is a fixed
+     * 4rem, so there Start and End hug the header's own edges.
+     *
+     * Center is the default and renders exactly what the chip rendered before
+     * this method existed. Only Start and End add anything — see
+     * alignmentStyle() for why that asymmetry is deliberate.
+     *
+     * An unknown string is ignored with a warning under APP_DEBUG, exactly as
+     * in size().
+     */
+    public function verticalAlignment(VerticalAlignment|string $alignment): static
+    {
+        if (is_string($alignment)) {
+            $resolved = VerticalAlignment::tryFrom($alignment);
+
+            if ($resolved === null) {
+                $this->warn("verticalAlignment('{$alignment}') is not one of start, center, end; it was ignored.");
+
+                return $this;
+            }
+
+            $alignment = $resolved;
+        }
+
+        $this->verticalAlignment = $alignment;
 
         return $this;
     }
@@ -386,11 +461,21 @@ class AppVersionPlugin implements Plugin
 
     protected function warnAboutVisibilityConflict(): void
     {
-        $message = '[filament-app-version] visible() and showToGuests() are both set on plugin '
-            .static::class.'; visible() wins and showToGuests() is ignored.';
+        $this->warn('visible() and showToGuests() are both set on plugin '
+            .static::class.'; visible() wins and showToGuests() is ignored.');
+    }
 
+    /**
+     * A misconfiguration the package works around rather than fails on.
+     *
+     * Silent in production on purpose: the person who can act on the message
+     * is the one running the panel with APP_DEBUG on, and a log line per
+     * request in production would be noise about a decision already made.
+     */
+    protected function warn(string $message): void
+    {
         if (App::hasDebugModeEnabled()) {
-            Log::warning($message);
+            Log::warning('[filament-app-version] '.$message);
         }
     }
 
@@ -427,7 +512,8 @@ class AppVersionPlugin implements Plugin
     }
 
     /**
-     * The chip's inline style: layout, colour and, if asked for, the pill.
+     * The chip's inline style: layout, type, alignment, colour and, if asked
+     * for, the pill.
      */
     protected function style(): string
     {
@@ -435,15 +521,106 @@ class AppVersionPlugin implements Plugin
         $dark = $this->neutral ? '200' : '400';
 
         $style = static::LAYOUT
+            .$this->typeStyle()
+            .$this->alignmentStyle()
             ."color:light-dark(var(--{$shade}-700, currentColor), var(--{$shade}-{$dark}, currentColor));";
 
         if ($this->badge) {
-            $style .= 'padding:0.125rem 0.5rem;border-radius:0.375rem;'
+            $style .= $this->pillStyle()
                 ."background-color:color-mix(in srgb, var(--{$shade}-500, currentColor) 12%, transparent);"
                 ."box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--{$shade}-500, currentColor) 24%, transparent);";
         }
 
         return $style;
+    }
+
+    /**
+     * Font size and line height for the chosen size.
+     *
+     * Medium is Tailwind's text-xs, which is where the chip started and what
+     * Filament's own .fi-badge uses; Large is text-sm and ExtraLarge is
+     * text-base, each with the line height Tailwind pairs it with.
+     *
+     * The two steps below Medium have no Tailwind pair to take: the type scale
+     * bottoms out at text-xs, and "smaller than the badge" is the whole point
+     * of asking for ExtraSmall next to a logo. Their line heights are set by
+     * hand to the same ~1.4 ratio the scale runs at, because a line height
+     * here is the chip's height, and with badge() the pill's.
+     */
+    protected function typeStyle(): string
+    {
+        return match ($this->size) {
+            Size::ExtraSmall => 'font-size:0.625rem;line-height:0.875rem;',
+            Size::Small => 'font-size:0.6875rem;line-height:1rem;',
+            Size::Medium => 'font-size:0.75rem;line-height:1rem;',
+            Size::Large => 'font-size:0.875rem;line-height:1.25rem;',
+            Size::ExtraLarge => 'font-size:1rem;line-height:1.5rem;',
+        };
+    }
+
+    /**
+     * The pill's padding and corner radius. Only reached with badge() on.
+     *
+     * Every value is a Tailwind spacing token (py-0, py-px, py-0.5 … py-1.5
+     * and px-1 … px-3). Two of the radii are Filament's own — rounded-md on
+     * the badge-sized steps and the button's rounded-lg at the top — and the
+     * bottom two are Tailwind's rounded-sm, one step under the badge, because
+     * 0.375rem on a 0.625rem line reads as a lozenge.
+     */
+    protected function pillStyle(): string
+    {
+        return match ($this->size) {
+            Size::ExtraSmall => 'padding:0 0.25rem;border-radius:0.25rem;',
+            Size::Small => 'padding:0.0625rem 0.375rem;border-radius:0.25rem;',
+            Size::Medium => 'padding:0.125rem 0.5rem;border-radius:0.375rem;',
+            Size::Large => 'padding:0.25rem 0.625rem;border-radius:0.375rem;',
+            Size::ExtraLarge => 'padding:0.375rem 0.75rem;border-radius:0.5rem;',
+        };
+    }
+
+    /**
+     * Vertical placement. Two declarations, because the hook decides which of
+     * them is live, and none at all for Center.
+     *
+     * A render hook drops the chip into one of three kinds of container, and
+     * Filament ships all three:
+     *
+     *   - a flex ROW: .fi-topbar-start and .fi-sidebar-header, the two default
+     *     hooks, both "flex items-center". align-self is the vertical axis
+     *     here and vertical-align is inert.
+     *   - a GRID: every schema hook, AUTH_LOGIN_FORM_AFTER among them, since
+     *     Schema renders its container with Filament's own grid() macro and a
+     *     RenderHook is liberatedFromContainerGrid(), i.e. a direct child of
+     *     it. A grid item is blockified, so again align-self moves it and
+     *     vertical-align does not.
+     *   - a BLOCK: a hook of your own that renders into running text. There
+     *     the chip is an inline-block in a line box, which is the one place
+     *     vertical-align is the whole story and align-self means nothing.
+     *
+     * Hence both declarations: each is a no-op where the other one works.
+     * Filament resolves its own VerticalAlignment the same way — items-* in a
+     * flex container, align-top/middle/bottom in a table cell.
+     *
+     * There is a fourth case, and it is why Center emits no align-self at all.
+     * A flex COLUMN container — .fi-sidebar-nav and .fi-sidebar, which carry
+     * SIDEBAR_NAV_START, SIDEBAR_NAV_END, SIDEBAR_START and SIDEBAR_FOOTER —
+     * puts align-self on the HORIZONTAL axis. An align-self:center emitted by
+     * default would silently pull a chip on those hooks out of the sidebar's
+     * full width and into its middle, and Center is what every chip gets
+     * without asking. Left out, the default is byte for byte what 1.0.x
+     * rendered, and the container keeps placing the chip exactly as it did.
+     * Start and End have to carry it: nothing else can move a flex item off
+     * its container's align-items. On a column hook they move the chip
+     * sideways instead — that is the axis CSS gives them, not a decision this
+     * package can make.
+     */
+    protected function alignmentStyle(): string
+    {
+        return match ($this->verticalAlignment) {
+            VerticalAlignment::Start => 'vertical-align:top;align-self:flex-start;',
+            VerticalAlignment::Center => 'vertical-align:middle;',
+            VerticalAlignment::End => 'vertical-align:bottom;align-self:flex-end;',
+        };
     }
 
     protected function attributes(?string $tooltip): ComponentAttributeBag

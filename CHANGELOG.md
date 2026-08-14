@@ -5,6 +5,41 @@ All notable changes to `filament-app-version` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `size()` — `Size::ExtraSmall` … `Size::ExtraLarge` (or `'xs'` … `'xl'`),
+  Filament's own `Size`. Scales the chip's text and, with `badge()` on, the
+  pill's padding and corner radius along with it. `Size::Medium` is the
+  default and is exactly what the chip rendered before the method existed, so
+  the upgrade changes nothing until it is called.
+- `verticalAlignment()` — `VerticalAlignment::Start`, `Center` (the default) or
+  `End`, or the same as strings. `Start` and `End` declare both `align-self`
+  and `vertical-align`, because the hook decides which one is live: a flex row
+  and a grid item ignore `vertical-align`, a chip rendered into running text
+  ignores `align-self`. `Center` declares neither and renders exactly what the
+  chip rendered before the method existed, so, as with `size()`, nothing moves
+  until it is called.
+
+  One caveat, and it is CSS's rather than the package's: a flex **column**
+  container — `.fi-sidebar-nav` and `.fi-sidebar`, which carry
+  `SIDEBAR_NAV_START`, `SIDEBAR_NAV_END`, `SIDEBAR_START` and `SIDEBAR_FOOTER`
+  — reads `align-self` on the horizontal axis, so on those hooks `Start` and
+  `End` move the chip sideways. That is also why `Center` writes nothing: it is
+  the value every chip carries without asking.
+
+### Changed
+
+- An unknown string passed to `size()` or `verticalAlignment()` is ignored,
+  keeping the previous value, and logs a warning when `APP_DEBUG` is on — the
+  same treatment the `visible()` / `showToGuests()` contradiction gets.
+
+### Public API surface
+
+- The fluent methods are now thirteen: `size()` and `verticalAlignment()` join
+  the eleven listed under 1.0.0, on the same terms.
+
 ## [1.0.1] - 2026-08-14
 
 ### Fixed
@@ -90,5 +125,6 @@ release.
   a published `resolvers` array replaces the package default wholesale — which
   also means a published config pins the chain against future additions to it.
 
+[Unreleased]: https://github.com/vaslv/filament-app-version/compare/v1.0.1...HEAD
 [1.0.1]: https://github.com/vaslv/filament-app-version/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/vaslv/filament-app-version/releases/tag/v1.0.0

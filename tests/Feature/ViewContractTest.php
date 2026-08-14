@@ -66,11 +66,9 @@ it('concatenates the user style with the mandatory one', function () {
 
     // Count style= on the chip itself only: the hidden screen reader label has
     // an inline style of its own, and it has nothing to do with this assertion.
-    preg_match('/^<span [^>]*>/', trim($html), $tag);
-
     expect($html)->toContain('light-dark(var(--primary-700')
         ->and($html)->toContain('opacity:1;')
-        ->and(substr_count($tag[0], 'style='))->toBe(1);
+        ->and(substr_count(chipTag($html), 'style='))->toBe(1);
 });
 
 it('lets arbitrary attributes through into the markup', function () {

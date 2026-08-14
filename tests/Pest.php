@@ -37,6 +37,23 @@ function panelHooks(Panel $panel): array
 }
 
 /**
+ * The chip's own opening tag, without the hidden screen reader label.
+ *
+ * Assertions about the chip's style have to be anchored to it. The label is a
+ * second <span> with an inline style of its own — padding:0, overflow:hidden,
+ * a white-space — so a negative assertion run against the whole markup can
+ * pass, or fail, on the wrong element entirely.
+ */
+function chipTag(string $html): string
+{
+    if (preg_match('/^<span [^>]*>/', trim($html), $tag) !== 1) {
+        throw new RuntimeException('No chip tag at the start of: '.$html);
+    }
+
+    return $tag[0];
+}
+
+/**
  * The same, but keyed by hook name, for when it matters what rendered where.
  *
  * @return array<string, string>

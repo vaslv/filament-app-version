@@ -44,7 +44,9 @@ tag can never be corrected after it is pushed. Sequence every release as:
 
 1. Rename the `## [Unreleased]` heading in `CHANGELOG.md` to the exact version
    being tagged (e.g. `## [1.1.0]`) — **the tag name must appear in
-   CHANGELOG.md before anything is pushed**. Update the README if needed.
+   CHANGELOG.md before anything is pushed** — and swap the `[Unreleased]`
+   link definition at the foot of the file for the tagged compare URL. Update
+   the README if needed.
 2. Commit the docs (or amend them into the release commit).
 3. `git push`, then `git tag -a vX.Y.Z -m "vX.Y.Z"` and push the tag.
 

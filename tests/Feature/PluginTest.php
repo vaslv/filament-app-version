@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 use Filament\Panel;
+use Filament\Support\Enums\Size;
+use Filament\Support\Enums\VerticalAlignment;
 use Filament\View\PanelsRenderHook;
 use Illuminate\Foundation\Auth\User;
+use Illuminate\Support\Facades\Log;
 use Vaslv\FilamentAppVersion\AppVersionPlugin;
 use Vaslv\FilamentAppVersion\Resolvers\ConfigVersionResolver;
 
@@ -136,6 +139,161 @@ it('the badge takes the neutral colour along with the text', function () {
 
     expect($html)->toContain('var(--gray-500, currentColor) 12%')
         ->and($html)->not->toContain('--primary-');
+});
+
+// The scale exists so the chip can be tuned to a panel, but the DEFAULT is a
+// released look: 1.0.0 shipped 0.75rem/1rem hard-coded, and size() must leave
+// it alone until someone calls it. Anything else restyles every existing panel
+// in a minor release.
+it('leaves the default size exactly as it was before the scale existed', function () {
+    $html = renderedHooks(panelWith(AppVersionPlugin::make()))[PanelsRenderHook::TOPBAR_LOGO_AFTER];
+
+    expect($html)->toContain('font-size:0.75rem;line-height:1rem;');
+});
+
+it('scales the text', function (Size|string $size, string $expected) {
+    $html = renderedHooks(panelWith(AppVersionPlugin::make()->size($size)))[PanelsRenderHook::TOPBAR_LOGO_AFTER];
+
+    expect($html)->toContain($expected);
+})->with([
+    'xs' => [Size::ExtraSmall, 'font-size:0.625rem;line-height:0.875rem;'],
+    'sm' => [Size::Small, 'font-size:0.6875rem;line-height:1rem;'],
+    'md' => [Size::Medium, 'font-size:0.75rem;line-height:1rem;'],
+    'lg' => [Size::Large, 'font-size:0.875rem;line-height:1.25rem;'],
+    'xl' => [Size::ExtraLarge, 'font-size:1rem;line-height:1.5rem;'],
+    'the string form' => ['lg', 'font-size:0.875rem;line-height:1.25rem;'],
+]);
+
+// The size has to reach the pill too, otherwise xl text sits in md padding and
+// the chip stops looking like one thing.
+it('scales the pill along with the text', function (Size $size, string $expected) {
+    $html = renderedHooks(panelWith(AppVersionPlugin::make()->badge()->size($size)))[PanelsRenderHook::TOPBAR_LOGO_AFTER];
+
+    expect($html)->toContain($expected);
+})->with([
+    'xs' => [Size::ExtraSmall, 'padding:0 0.25rem;border-radius:0.25rem;'],
+    'sm' => [Size::Small, 'padding:0.0625rem 0.375rem;border-radius:0.25rem;'],
+    'md' => [Size::Medium, 'padding:0.125rem 0.5rem;border-radius:0.375rem;'],
+    'lg' => [Size::Large, 'padding:0.25rem 0.625rem;border-radius:0.375rem;'],
+    'xl' => [Size::ExtraLarge, 'padding:0.375rem 0.75rem;border-radius:0.5rem;'],
+]);
+
+// One size would not do: pillStyle() is a match over the scale, so a padding
+// that leaks into bare text at a single step survives a single-step test.
+it('leaves bare text without a pill at any size', function (Size $size) {
+    $html = renderedHooks(panelWith(AppVersionPlugin::make()->size($size)))[PanelsRenderHook::TOPBAR_LOGO_AFTER];
+
+    // The chip's own tag only: the hidden screen reader label carries a
+    // padding:0 of its own, and it has nothing to do with the pill.
+    expect(chipTag($html))->not->toContain('padding:')
+        ->and(chipTag($html))->not->toContain('border-radius');
+})->with([
+    'xs' => Size::ExtraSmall,
+    'sm' => Size::Small,
+    'md' => Size::Medium,
+    'lg' => Size::Large,
+    'xl' => Size::ExtraLarge,
+]);
+
+// "The previous value stays" is what the READMEs and the changelog promise, and
+// asserting the DEFAULT is still there proves nothing: a size() that reset to
+// Medium instead of ignoring the input would pass that just as well.
+it('keeps the size it already had when the new one is unknown', function () {
+    config()->set('app.debug', true);
+
+    Log::spy();
+
+    $plugin = AppVersionPlugin::make()->size(Size::ExtraLarge)->size('huge');
+
+    expect(renderedHooks(panelWith($plugin))[PanelsRenderHook::TOPBAR_LOGO_AFTER])
+        ->toContain('font-size:1rem;line-height:1.5rem;');
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $message): bool => str_contains($message, "size('huge')"));
+});
+
+it('keeps the alignment it already had when the new one is unknown', function () {
+    config()->set('app.debug', true);
+
+    Log::spy();
+
+    $plugin = AppVersionPlugin::make()->verticalAlignment(VerticalAlignment::End)->verticalAlignment('top');
+
+    expect(renderedHooks(panelWith($plugin))[PanelsRenderHook::TOPBAR_LOGO_AFTER])
+        ->toContain('vertical-align:bottom;align-self:flex-end;');
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $message): bool => str_contains($message, "verticalAlignment('top')"));
+});
+
+// Two declarations, because the hook decides which one is live: a flex row and
+// a grid item ignore vertical-align, a chip inside running text ignores
+// align-self. Dropping either leaves the method working on half the hooks.
+it('emits both the flex and the inline declaration', function (VerticalAlignment|string $alignment, string $expected) {
+    $plugin = AppVersionPlugin::make()->verticalAlignment($alignment);
+
+    expect(renderedHooks(panelWith($plugin))[PanelsRenderHook::TOPBAR_LOGO_AFTER])->toContain($expected);
+})->with([
+    'start' => [VerticalAlignment::Start, 'vertical-align:top;align-self:flex-start;'],
+    'end' => [VerticalAlignment::End, 'vertical-align:bottom;align-self:flex-end;'],
+    'the string form' => ['end', 'vertical-align:bottom;align-self:flex-end;'],
+]);
+
+// Centre is the default, and a default must not carry align-self. Filament's
+// own column-flex hooks — .fi-sidebar-nav, .fi-sidebar — read align-self on the
+// HORIZONTAL axis, so an unconditional align-self:center would quietly pull
+// every chip on SIDEBAR_NAV_END and its neighbours out of the sidebar's full
+// width and into its middle, without anyone calling the method.
+it('adds no align-self when the chip is centred', function (AppVersionPlugin $plugin) {
+    $html = renderedHooks(panelWith($plugin))[PanelsRenderHook::TOPBAR_LOGO_AFTER];
+
+    expect($html)->toContain('vertical-align:middle;')
+        ->and($html)->not->toContain('align-self');
+})->with([
+    'the default' => fn () => AppVersionPlugin::make(),
+    'centre asked for explicitly' => fn () => AppVersionPlugin::make()->verticalAlignment(VerticalAlignment::Center),
+]);
+
+// warn() is shared by three call sites now. Without this, a warn() that fired
+// on every configuration would still leave the suite green: the only debug-on
+// assertions feed it invalid input, and the debug-off one is the TestCase
+// default anyway.
+it('says nothing about a size and an alignment it understands', function () {
+    config()->set('app.debug', true);
+
+    Log::spy();
+
+    renderedHooks(panelWith(
+        AppVersionPlugin::make()->size(Size::Large)->verticalAlignment(VerticalAlignment::Start),
+    ));
+
+    Log::shouldNotHaveReceived('warning');
+});
+
+it('stays quiet about an unknown size and alignment when debug is off', function () {
+    config()->set('app.debug', false);
+
+    Log::spy();
+
+    renderedHooks(panelWith(AppVersionPlugin::make()->size('huge')->verticalAlignment('top')));
+
+    Log::shouldNotHaveReceived('warning');
+});
+
+// The user's own style is appended last and wins, size() and
+// verticalAlignment() included. Losing that order would make
+// extraAttributes(['style' => 'font-size:...']) a coin toss, and the README
+// offers it as the way to restyle without a custom view.
+it('lets the user style win over the size', function () {
+    $plugin = AppVersionPlugin::make()
+        ->size(Size::ExtraLarge)
+        ->extraAttributes(['style' => 'font-size:2rem;']);
+
+    $html = renderedHooks(panelWith($plugin))[PanelsRenderHook::TOPBAR_LOGO_AFTER];
+
+    expect($html)->toMatch('/font-size:1rem;.*font-size:2rem;/');
 });
 
 it('substitutes the translated tooltip', function () {

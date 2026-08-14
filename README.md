@@ -71,6 +71,8 @@ APP_VERSION=1.19.16
 
 ```php
 use Filament\Panel;
+use Filament\Support\Enums\Size;
+use Filament\Support\Enums\VerticalAlignment;
 use Filament\View\PanelsRenderHook;
 use Vaslv\FilamentAppVersion\AppVersionPlugin;
 use Vaslv\FilamentAppVersion\Resolvers\ConfigVersionResolver;
@@ -88,6 +90,8 @@ use Vaslv\FilamentAppVersion\Resolvers\GitVersionResolver;
         ->prefix('v')
         ->badge()
         ->neutral()
+        ->size(Size::Small)
+        ->verticalAlignment(VerticalAlignment::Center)
         ->renderHooks([
             PanelsRenderHook::TOPBAR_LOGO_AFTER,
             PanelsRenderHook::SIDEBAR_LOGO_AFTER,
@@ -106,6 +110,8 @@ use Vaslv\FilamentAppVersion\Resolvers\GitVersionResolver;
 | `prefix(string)` | `'v'` | Never doubled: a version that already starts with `v` is left alone |
 | `badge(bool)` | `false` | Draws the version as a pill with a tint and a hairline ring instead of bare text |
 | `neutral(bool)` | `false` | Uses the panel's neutral grey instead of its primary colour |
+| `size(Size\|string)` | `Size::Medium` | `xs` … `xl`. Scales the text, and the pill along with it — see [Size](#size) |
+| `verticalAlignment(VerticalAlignment\|string)` | `VerticalAlignment::Center` | `start`, `center` or `end` — see [Vertical placement](#vertical-placement) |
 | `renderHooks(array)` | topbar + sidebar header | Any `PanelsRenderHook` — see [Hook order](#hook-order) |
 | `tooltip(string\|Closure\|null)` | translated "Application version" | Becomes the `title` attribute. `null` removes it entirely rather than falling back to the default. Pass a **closure** if the text is translated — see below |
 | `visible(bool\|Closure)` | authenticated only | Has the last word, over the default and over `showToGuests()` |
@@ -127,6 +133,48 @@ AppVersionPlugin::make()->neutral()   // the grey of an ordinary menu item
 ```
 
 Nothing is hard-coded. The colours come from the panel's own `--primary-*` and `--gray-*` variables, so the chip follows whatever palette you passed to `->colors()`. The light and dark shades are picked by CSS `light-dark()`, which works because Filament declares `color-scheme` on the dark root — so there is no class to register and no stylesheet to rebuild.
+
+### Size
+
+```php
+use Filament\Support\Enums\Size;
+
+AppVersionPlugin::make()->size(Size::Small)   // or ->size('sm')
+```
+
+Takes Filament's own `Size` or its string value.
+
+| `size()` | Text | Pill, `badge()` only |
+|---|---|---|
+| `xs` | `0.625rem` / `0.875rem` | padding `0 0.25rem`, radius `0.25rem` |
+| `sm` | `0.6875rem` / `1rem` | padding `0.0625rem 0.375rem`, radius `0.25rem` |
+| `md` **(default)** | `0.75rem` / `1rem` — Tailwind's `text-xs`, the size Filament's own `.fi-badge` uses | padding `0.125rem 0.5rem`, radius `0.375rem` |
+| `lg` | `0.875rem` / `1.25rem` — `text-sm` | padding `0.25rem 0.625rem`, radius `0.375rem` |
+| `xl` | `1rem` / `1.5rem` — `text-base` | padding `0.375rem 0.75rem`, radius `0.5rem` |
+
+`md` is exactly what the chip was before `size()` existed, so upgrading changes nothing until you call it. Every padding is a Tailwind spacing token; two of the radii are Filament's own — `rounded-md` on the badge-sized steps and the button's `rounded-lg` at the top — and the bottom two are Tailwind's `rounded-sm`, one step under the badge, because `0.375rem` on a `0.625rem` line reads as a lozenge. The two steps below `md` leave the Tailwind type scale, which bottoms out at `text-xs`, because "smaller than a badge" is the whole point of asking for `xs` next to a logo.
+
+Without `badge()` only the text scales: there is no pill to scale.
+
+### Vertical placement
+
+```php
+use Filament\Support\Enums\VerticalAlignment;
+
+AppVersionPlugin::make()->verticalAlignment(VerticalAlignment::Start)   // or ->verticalAlignment('start')
+```
+
+`start` pins the chip to the top, `end` to the bottom, `center` is the default.
+
+The reference is **the row the chip renders into**, not the whole bar. In the topbar that row is as tall as the logo, so `start` levels the chip with the top of the logo. The sidebar drawer header is a fixed `4rem` (`.fi-sidebar-header` is `h-16`), so there `start` and `end` hug the header's own edges — the same setting is tighter on desktop than it is in the mobile drawer.
+
+`center` adds nothing to the markup at all: it renders exactly what the chip rendered before this method existed, and the container goes on placing it — which in both default hooks is the middle. Only `start` and `end` write anything, because nothing but `align-self` can move an item off its container's `align-items`.
+
+They write it twice, as `align-self` and as `vertical-align`, because the hook decides which one is live. A hook lands the chip in one of three kinds of container: a **flex row** (`.fi-topbar-start` and `.fi-sidebar-header`, the two defaults), a **grid** (every schema hook, `AUTH_LOGIN_FORM_AFTER` among them — Filament renders a schema container through its own `grid()` macro), or a **block**, which is a hook of your own rendering into running text. In the first two `align-self` moves the chip and `vertical-align` is inert; in the third it is the other way round. Each declaration is a no-op where the other one works.
+
+There is a fourth container, and it is the one caveat: a **flex column** — `.fi-sidebar-nav` and `.fi-sidebar`, which carry `SIDEBAR_NAV_START`, `SIDEBAR_NAV_END`, `SIDEBAR_START` and `SIDEBAR_FOOTER` — reads `align-self` on the *horizontal* axis. On those hooks `start` and `end` move the chip sideways rather than up and down. That is the axis CSS gives them, not a decision this package can make; it is also why `center`, the value every chip has without asking for it, writes nothing.
+
+An unrecognised string in either method is ignored — the previous value stays — with a warning in the log when `APP_DEBUG` is on. A mistyped size is a cosmetic detail, and the package does not take a panel down over one.
 
 ### `extraAttributes()` and escaping
 
@@ -195,7 +243,7 @@ Swap those two lines and you get logo → menu → version.
 <span {{ $attributes }}>{{ $prefix }}{{ $version }}</span>
 ```
 
-**To restyle rather than replace, you do not need `->view()` at all** — `->extraAttributes(['style' => 'font-size:0.7rem;'])` overrides the package's own declarations. Inside a custom view, `{{ $attributes->except('style') }}` drops the package's styling, along with anything you passed through `extraAttributes(['style' => …])`.
+**To restyle rather than replace, you do not need `->view()` at all** — [`size()`](#size) and [`verticalAlignment()`](#vertical-placement) cover the usual two, and `->extraAttributes(['style' => 'font-size:0.7rem;'])` overrides the package's own declarations for everything else. Inside a custom view, `{{ $attributes->except('style') }}` drops the package's styling, along with anything you passed through `extraAttributes(['style' => …])`.
 
 The package view also emits a visually-hidden `"<tooltip>: "` before the version, because the chip is a non-focusable `<span>` whose `title` is unreachable by keyboard. A custom view that omits it announces a bare `v1.19.16` to a screen reader.
 
