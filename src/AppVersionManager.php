@@ -45,6 +45,9 @@ class AppVersionManager
     /** @var array<string, string> */
     private array $html = [];
 
+    /** @var array<string, true> */
+    private array $once = [];
+
     /**
      * @param  list<VersionResolver>  $resolvers
      */
@@ -109,6 +112,27 @@ class AppVersionManager
         }
 
         return $this->html[$key];
+    }
+
+    /**
+     * True the first time it is called with a key in this request, false after.
+     *
+     * For markup that belongs to the page rather than to a chip: a panel may
+     * carry two plugin instances, an application version and an API version
+     * say, and both would emit the same <style> into the same sidebar header.
+     * Keyed and per-request for the same reason everything else here is —
+     * under Octane the container outlives the request, and a flag that did not
+     * reset would drop the style for every request but the worker's first.
+     */
+    public function once(string $key): bool
+    {
+        if (isset($this->once[$key])) {
+            return false;
+        }
+
+        $this->once[$key] = true;
+
+        return true;
     }
 
     /**

@@ -197,7 +197,9 @@ it('builds the markup once for both hooks', function () {
 
     $rendered = array_map(fn (Closure $closure): string => $closure(), hookClosures($panel));
 
+    // toEndWith, not toBe: the sidebar copy carries the header's <style> in
+    // front of the very same chip. Everything after it has to be identical.
     expect($rendered)->toHaveCount(2)
-        ->and($rendered[0])->toBe($rendered[1])
+        ->and($rendered[1])->toEndWith($rendered[0])
         ->and($calls)->toBe(1);
 });

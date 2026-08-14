@@ -5,6 +5,32 @@ All notable changes to `filament-app-version` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The chip's position in the **sidebar drawer header** on mobile. Filament
+  gives the header's logo container `flex: 1 1 0%`, so it takes the whole width
+  and everything after it — `SIDEBAR_LOGO_AFTER` is the header's last child —
+  ended up against the opposite edge, a chip promised "next to the logo"
+  sitting across the header from it. The package now emits one `<style>` on
+  that hook, and only together with a chip that is actually rendered there:
+  `flex: 0 1 auto` on the logo container, plus an auto inline-end margin on the
+  chip so the pair stays flush with the menu below instead of drifting into the
+  header's `justify-content: center`.
+
+### Added
+
+- Every chip carries `data-filament-app-version="true"`. It is what the sidebar
+  rule above selects on, and it gives a stable hook for your own CSS and tests
+  without touching the `class` attribute. `extraAttributes()` still overrides
+  it, like any other attribute.
+- Screenshots of every visual option in the README.
+
+### Public API surface
+
+- `data-filament-app-version` on the chip joins the list.
+
 ## [1.1.0] - 2026-08-14
 
 ### Added
@@ -125,6 +151,7 @@ release.
   a published `resolvers` array replaces the package default wholesale — which
   also means a published config pins the chain against future additions to it.
 
+[Unreleased]: https://github.com/vaslv/filament-app-version/compare/v1.1.0...HEAD
 [1.1.0]: https://github.com/vaslv/filament-app-version/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/vaslv/filament-app-version/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/vaslv/filament-app-version/releases/tag/v1.0.0

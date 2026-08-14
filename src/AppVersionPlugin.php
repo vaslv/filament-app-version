@@ -62,6 +62,39 @@ class AppVersionPlugin implements Plugin
         .'white-space:nowrap;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;'
         .'unicode-bidi:isolate;direction:ltr;';
 
+    // The chip's own hook for CSS: the sidebar rule below needs to address it,
+    // and the class attribute is left free for whoever renders the panel.
+    protected const string MARKER = 'data-filament-app-version';
+
+    // The one rule the chip cannot express as an inline style of its own,
+    // because it is about its NEIGHBOUR.
+    //
+    // Filament gives the sidebar header's logo container "flex: 1 1 0%", so it
+    // eats the whole width of the header and anything rendered after it —
+    // SIDEBAR_LOGO_AFTER is the last child of .fi-sidebar-header — is pushed
+    // against the far edge. The chip promises to sit next to the logo, and in
+    // the mobile drawer it sat across the header from it instead.
+    //
+    // The whole shorthand, not flex-grow alone: the declaration Filament writes
+    // also carries flex-basis:0%, and zeroing only the grow would leave the
+    // logo a container of width zero.
+    //
+    // The second rule is what keeps the logo where it was. The header is a
+    // "justify-content: center" flex row, which never showed because the logo
+    // filled it; take the grow away and the pair drifts into the middle of the
+    // header while the menu below stays flush left. An auto margin on the chip
+    // eats the free space before justify-content ever gets to distribute it, so
+    // the row sits left again — and it does that whatever justify-content a
+    // custom theme sets, which is why it is not a justify-content override.
+    //
+    // Emitted with the chip and only on that hook, so a panel that renders the
+    // chip elsewhere, or hides it, gets no stray CSS. The header's collapse
+    // buttons are rendered BEFORE the logo, so nothing else in the row moves.
+    protected const string SIDEBAR_HEADER_STYLE = '<style>'
+        .'.fi-sidebar-header .fi-sidebar-header-logo-ctn{flex:0 1 auto}'
+        .'.fi-sidebar-header ['.self::MARKER.']{margin-inline-end:auto}'
+        .'</style>';
+
     /** @var list<VersionResolver>|null */
     protected ?array $resolvers = null;
 
@@ -130,7 +163,7 @@ class AppVersionPlugin implements Plugin
     public function register(Panel $panel): void
     {
         foreach ($this->renderHooks as $hook) {
-            $panel->renderHook($hook, fn (): string => $this->render($panel));
+            $panel->renderHook($hook, fn (): string => $this->render($panel, $hook));
         }
     }
 
@@ -371,7 +404,7 @@ class AppVersionPlugin implements Plugin
         return $this;
     }
 
-    protected function render(Panel $panel): string
+    protected function render(Panel $panel, string $hook = ''): string
     {
         $manager = app(AppVersionManager::class);
 
@@ -384,7 +417,16 @@ class AppVersionPlugin implements Plugin
         // by rendering.
         $key = 'panel:'.$panel->getId().':'.spl_object_id($this);
 
-        return $manager->html($key, fn (): string => $this->build($manager, $panel, $key));
+        $html = $manager->html($key, fn (): string => $this->build($manager, $panel, $key));
+
+        if ($html === '' || $hook !== PanelsRenderHook::SIDEBAR_LOGO_AFTER) {
+            return $html;
+        }
+
+        // Once per request, however many chips the panel carries.
+        return $manager->once('sidebar-header-style')
+            ? static::SIDEBAR_HEADER_STYLE.$html
+            : $html;
     }
 
     /**
@@ -639,7 +681,7 @@ class AppVersionPlugin implements Plugin
             unset($extra['style']);
         }
 
-        $defaults = ['style' => $style];
+        $defaults = ['style' => $style, static::MARKER => 'true'];
 
         if ($tooltip !== null && $tooltip !== '') {
             $defaults['title'] = $tooltip;
