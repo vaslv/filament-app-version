@@ -12,13 +12,14 @@ use Vaslv\FilamentAppVersion\Contracts\VersionResolver;
  *   .git exists?
  *     ├── no                       → null
  *     ├── file "gitdir: /path/.."  → follow gitdir   [worktree, submodule]
+ *     │     └── gitdir/commondir → shared refs live THERE   [worktree]
  *     └── directory
- *           └── .git/HEAD
+ *           └── HEAD
  *                 ├── "ref: refs/heads/X"
- *                 │     ├── .git/<ref> exists     → SHA
- *                 │     └── else .git/packed-refs → SHA
- *                 │           └── not found       → null
- *                 └── raw SHA (detached HEAD)     → SHA
+ *                 │     ├── <gitdir>/<ref>, else <common>/<ref> → SHA
+ *                 │     └── else <common>/packed-refs           → SHA
+ *                 │           └── not found                     → null
+ *                 └── raw SHA (detached HEAD)                   → SHA
  *           → the first 7 characters
  *
  * No shell_exec and no relatives: zero injection surface, checked by an arch
@@ -70,7 +71,7 @@ final class GitVersionResolver implements VersionResolver
         }
 
         $sha = str_starts_with($head, 'ref:')
-            ? $this->resolveRef($git, trim(substr($head, 4)))
+            ? $this->resolveRef($git, $this->commonDirectory($git), trim(substr($head, 4)))
             : $head;
 
         if ($sha === null || preg_match(self::SHA, $sha) !== 1) {
@@ -109,16 +110,46 @@ final class GitVersionResolver implements VersionResolver
 
         // A worktree writes an ABSOLUTE path, a submodule a RELATIVE one
         // ("gitdir: ../.git/modules/app"). git counts a relative one from the
-        // directory holding the .git file itself, not from the process CWD,
-        // which under PHP-FPM is public/. That is why the submodule support
-        // the docblock claimed had never actually worked: is_dir() missed and
-        // the resolver returned null. Verified on a live submodule and a live
-        // worktree.
-        if (! is_dir($gitdir)) {
-            $gitdir = dirname($path).'/'.$gitdir;
+        // directory holding the .git file itself, NEVER from the process CWD,
+        // which under PHP-FPM is public/. Testing the raw value with is_dir
+        // first would consult the CWD: a directory that happens to answer to
+        // "../.git/modules/app" from wherever PHP is running would be taken
+        // for the repository, and the chip would show a SHA from a different
+        // repository entirely. Same rule as in commonDirectory().
+        $resolved = str_starts_with($gitdir, '/') ? $gitdir : dirname($path).'/'.$gitdir;
+
+        return is_dir($resolved) ? $resolved : null;
+    }
+
+    /**
+     * The directory holding the SHARED refs.
+     *
+     * A linked worktree's gitdir (.git/worktrees/<name>/) contains only the
+     * worktree's own HEAD, index and a "commondir" file with the path to the
+     * main .git — refs/heads/* and packed-refs live there. The path is written
+     * relative to the gitdir itself (usually "../.."), never to the process
+     * CWD. A submodule's gitdir (.git/modules/<name>) has no commondir file
+     * and keeps its own refs, so there the gitdir doubles as the common
+     * directory. Verified on a live worktree: without this, every worktree
+     * with a checked-out branch resolved to null, because the gitdir has no
+     * refs/ at all.
+     */
+    private function commonDirectory(string $git): string
+    {
+        $common = $this->readFile($git.'/commondir');
+
+        if ($common === null) {
+            return $git;
         }
 
-        return is_dir($gitdir) ? $gitdir : null;
+        // The path is relative to the gitdir unless absolute. Testing the raw
+        // value with is_dir first would be a trap: "../.." is nearly always a
+        // real directory relative to the process CWD, which under PHP-FPM is
+        // the application's public/, and the refs would be looked up two
+        // levels above THAT.
+        $resolved = str_starts_with($common, '/') ? $common : $git.'/'.$common;
+
+        return is_dir($resolved) ? $resolved : $git;
     }
 
     /**
@@ -130,24 +161,30 @@ final class GitVersionResolver implements VersionResolver
      * checked-out branch stays a separate file, and only the remaining refs
      * move into packed-refs. Verified on a live repository in both states.
      */
-    private function resolveRef(string $git, string $ref): ?string
+    private function resolveRef(string $git, string $common, string $ref): ?string
     {
         if (preg_match(self::REF, $ref) !== 1 || str_contains($ref, '..')) {
             return null;
         }
 
+        // The worktree's own directory first: refs/bisect and refs/worktree/*
+        // are per-worktree and live in the gitdir, not the common one.
         $loose = $this->readFile($git.'/'.$ref);
+
+        if ($loose === null && $common !== $git) {
+            $loose = $this->readFile($common.'/'.$ref);
+        }
 
         if ($loose !== null) {
             return $loose;
         }
 
-        return $this->readPackedRef($git, $ref);
+        return $this->readPackedRef($common, $ref);
     }
 
-    private function readPackedRef(string $git, string $ref): ?string
+    private function readPackedRef(string $common, string $ref): ?string
     {
-        $contents = $this->readFile($git.'/packed-refs');
+        $contents = $this->readFile($common.'/packed-refs');
 
         if ($contents === null) {
             return null;

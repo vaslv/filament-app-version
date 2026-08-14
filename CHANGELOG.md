@@ -5,7 +5,21 @@ All notable changes to `filament-app-version` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.1] - 2026-08-14
+
+### Fixed
+
+- `GitVersionResolver` in a linked `git worktree`. The branch refs and
+  `packed-refs` live in the common `.git`, reached through the gitdir's
+  `commondir` file — which the resolver never read, so every worktree with a
+  checked-out branch silently resolved to `null` and the chip showed the
+  fallback. Detached-HEAD worktrees worked by accident. Submodules are
+  unaffected: their gitdir keeps its own refs.
+- A relative `gitdir:` path is now anchored strictly to the directory holding
+  the `.git` file. Probing the raw value with `is_dir()` consulted the process
+  working directory first, and a directory that happened to be reachable from
+  there was taken for the repository — a SHA from the wrong repository, not
+  even a `null`.
 
 ## [1.0.0] - 2026-08-13
 
@@ -76,5 +90,5 @@ release.
   a published `resolvers` array replaces the package default wholesale — which
   also means a published config pins the chain against future additions to it.
 
-[Unreleased]: https://github.com/vaslv/filament-app-version/compare/v1.0.0...HEAD
+[1.0.1]: https://github.com/vaslv/filament-app-version/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/vaslv/filament-app-version/releases/tag/v1.0.0

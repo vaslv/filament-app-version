@@ -161,6 +161,67 @@ it('follows a RELATIVE gitdir: the submodule layout', function () {
     }
 });
 
+// The raw relative gitdir must never be consulted against the process CWD:
+// is_dir('../modules/app') can match a DIFFERENT repository that happens to be
+// reachable from wherever PHP is running, and the resolver would silently
+// report that repository's SHA. The decoy below carries f-SHAs; only resolving
+// against the directory holding the .git file reaches the real repository.
+it('resolves a relative gitdir against the .git file, not a CWD decoy', function () {
+    $root = gitFixture([
+        'real/modules/app/HEAD' => "ref: refs/heads/main\n",
+        'real/modules/app/refs/heads/main' => GIT_SHA."\n",
+        'real/app/.git' => "gitdir: ../modules/app\n",
+        // The decoy: same relative layout, different SHA, reachable as
+        // ../modules/app from the working directory chosen below.
+        'decoy/modules/app/HEAD' => "ref: refs/heads/main\n",
+        'decoy/modules/app/refs/heads/main' => str_repeat('f', 40)."\n",
+        'decoy/cwd/.keep' => '',
+    ]);
+
+    $cwd = getcwd();
+    chdir($root.'/decoy/cwd');
+
+    try {
+        expect(GitVersionResolver::make($root.'/real/app/.git')->resolve())->toBe('a1b2c3d');
+    } finally {
+        chdir((string) $cwd);
+    }
+});
+
+// Per-worktree refs (refs/bisect/*, refs/worktree/*) live in the worktree's
+// own gitdir, not in the common directory. The gitdir must be consulted FIRST:
+// a lookup that goes straight to the common directory finds nothing for these
+// refs and the chip silently falls back.
+it('finds a per-worktree ref in the gitdir itself', function () {
+    $main = gitFixture([
+        '.git/worktrees/wt/HEAD' => "ref: refs/worktree/wip\n",
+        '.git/worktrees/wt/refs/worktree/wip' => GIT_SHA."\n",
+        '.git/worktrees/wt/commondir' => "../..\n",
+        // The common directory exists but does not hold this ref.
+        '.git/refs/heads/main' => str_repeat('1', 40)."\n",
+    ]);
+
+    $work = gitFixture(['.git' => 'gitdir: '.$main.'/.git/worktrees/wt'."\n"]);
+
+    expect(GitVersionResolver::make($work.'/.git')->resolve())->toBe('a1b2c3d');
+});
+
+// A dangling commondir must fall back to the gitdir itself — the submodule
+// shape, where .git/modules/<name> keeps its own refs. Without the fallback
+// the packed-refs sitting right next to HEAD would be ignored and the
+// resolver would return null instead of the SHA.
+it('falls back to the gitdir when commondir points nowhere', function () {
+    $main = gitFixture([
+        '.git/worktrees/wt/HEAD' => "ref: refs/heads/feature\n",
+        '.git/worktrees/wt/packed-refs' => GIT_SHA." refs/heads/feature\n",
+        '.git/worktrees/wt/commondir' => "/nope/really/not/here\n",
+    ]);
+
+    $work = gitFixture(['.git' => 'gitdir: '.$main.'/.git/worktrees/wt'."\n"]);
+
+    expect(GitVersionResolver::make($work.'/.git')->resolve())->toBe('a1b2c3d');
+});
+
 it('returns null when .git is a file with no gitdir line', function () {
     $work = gitFixture(['.git' => "anything but a gitdir line\n"]);
 
@@ -170,6 +231,50 @@ it('returns null when .git is a file with no gitdir line', function () {
 it('returns null when gitdir points nowhere', function () {
     // A real case: a worktree outlived the move of its main repository.
     $work = gitFixture(['.git' => "gitdir: /nope/really/not/here\n"]);
+
+    expect(GitVersionResolver::make($work.'/.git')->resolve())->toBeNull();
+});
+
+// A linked worktree: gitdir points into .git/worktrees/<name>/, which holds
+// only the worktree's own HEAD and a "commondir" file with the path to the
+// main .git, written relative to the gitdir itself (usually "../.."). The
+// branch refs and packed-refs live in that COMMON directory. The
+// follows-gitdir fixture above puts refs/ inside the gitdir target, which is
+// the submodule layout, not the worktree one — so the suite stayed green
+// while a live worktree with a checked-out branch resolved to null.
+it('reads the branch ref through commondir: the worktree layout', function () {
+    $main = gitFixture([
+        '.git/refs/heads/feature' => GIT_SHA."\n",
+        '.git/worktrees/wt/HEAD' => "ref: refs/heads/feature\n",
+        '.git/worktrees/wt/commondir' => "../..\n",
+    ]);
+
+    $work = gitFixture(['.git' => 'gitdir: '.$main.'/.git/worktrees/wt'."\n"]);
+
+    expect(GitVersionResolver::make($work.'/.git')->resolve())->toBe('a1b2c3d');
+});
+
+it('reads a packed ref through commondir', function () {
+    $main = gitFixture([
+        '.git/packed-refs' => GIT_SHA." refs/heads/feature\n",
+        '.git/worktrees/wt/HEAD' => "ref: refs/heads/feature\n",
+        '.git/worktrees/wt/commondir' => "../..\n",
+    ]);
+
+    $work = gitFixture(['.git' => 'gitdir: '.$main.'/.git/worktrees/wt'."\n"]);
+
+    expect(GitVersionResolver::make($work.'/.git')->resolve())->toBe('a1b2c3d');
+});
+
+it('degrades to null when commondir points nowhere', function () {
+    // A worktree whose main repository was moved: HEAD is still readable, the
+    // shared refs are not. That is a null, not an exception.
+    $main = gitFixture([
+        '.git/worktrees/wt/HEAD' => "ref: refs/heads/feature\n",
+        '.git/worktrees/wt/commondir' => "/nope/really/not/here\n",
+    ]);
+
+    $work = gitFixture(['.git' => 'gitdir: '.$main.'/.git/worktrees/wt'."\n"]);
 
     expect(GitVersionResolver::make($work.'/.git')->resolve())->toBeNull();
 });
