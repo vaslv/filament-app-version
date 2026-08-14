@@ -8,6 +8,8 @@
 
 A [Filament 5](https://filamentphp.com) plugin that shows your application's version as a small chip next to the panel logo — in the topbar on desktop and in the sidebar drawer header on mobile, so it is visible at any width.
 
+<img src="art/hook-topbar.png" width="440" alt="The version chip next to the panel logo in the topbar">
+
 - 🔗 **Works with no configuration** — if your app already exposes `config('app.version')` or carries a `version` field in `composer.json`, install and register the plugin and you are done
 - 🧩 **Several sources, one priority chain** — the first non-empty one wins
 - 🎨 **Takes its colour from your panel** — the primary colour by default, the neutral grey on request, in both light and dark themes, with no custom theme and no Tailwind rebuild
@@ -132,6 +134,23 @@ AppVersionPlugin::make()->badge()     // a pill: tinted background + hairline ri
 AppVersionPlugin::make()->neutral()   // the grey of an ordinary menu item
 ```
 
+| | Light | Dark |
+|---|---|---|
+| default | <img src="art/appearance-plain.png" width="240" alt="Bare text in the primary colour, light theme"> | <img src="art/appearance-plain-dark.png" width="240" alt="Bare text in the primary colour, dark theme"> |
+| `neutral()` | <img src="art/appearance-neutral.png" width="240" alt="Bare text in the neutral grey, light theme"> | <img src="art/appearance-neutral-dark.png" width="240" alt="Bare text in the neutral grey, dark theme"> |
+| `badge()` | <img src="art/appearance-badge.png" width="240" alt="A pill in the primary colour, light theme"> | <img src="art/appearance-badge-dark.png" width="240" alt="A pill in the primary colour, dark theme"> |
+| `badge()->neutral()` | <img src="art/appearance-badge-neutral.png" width="240" alt="A grey pill, light theme"> | <img src="art/appearance-badge-neutral-dark.png" width="240" alt="A grey pill, dark theme"> |
+
+The panel above passes `Color::Amber` to `->colors()`; the chip is amber because the panel is, not because the package picked a colour.
+
+`prefix()` is part of the same text — a `v` unless you say otherwise:
+
+```php
+AppVersionPlugin::make()->badge()->prefix('build ')
+```
+
+<img src="art/prefix-custom.png" width="240" alt="A pill reading 'build 1.14.3'">
+
 Nothing is hard-coded. The colours come from the panel's own `--primary-*` and `--gray-*` variables, so the chip follows whatever palette you passed to `->colors()`. The light and dark shades are picked by CSS `light-dark()`, which works because Filament declares `color-scheme` on the dark root — so there is no class to register and no stylesheet to rebuild.
 
 ### Size
@@ -152,6 +171,16 @@ Takes Filament's own `Size` or its string value.
 | `lg` | `0.875rem` / `1.25rem` — `text-sm` | padding `0.25rem 0.625rem`, radius `0.375rem` |
 | `xl` | `1rem` / `1.5rem` — `text-base` | padding `0.375rem 0.75rem`, radius `0.5rem` |
 
+All five with `badge()` on, cropped identically so the steps are comparable:
+
+| | |
+|---|---|
+| `xs` | <img src="art/size-xs.png" width="240" alt="The chip at size xs"> |
+| `sm` | <img src="art/size-sm.png" width="240" alt="The chip at size sm"> |
+| `md` | <img src="art/size-md.png" width="240" alt="The chip at size md"> |
+| `lg` | <img src="art/size-lg.png" width="240" alt="The chip at size lg"> |
+| `xl` | <img src="art/size-xl.png" width="240" alt="The chip at size xl"> |
+
 `md` is exactly what the chip was before `size()` existed, so upgrading changes nothing until you call it. Every padding is a Tailwind spacing token; two of the radii are Filament's own — `rounded-md` on the badge-sized steps and the button's `rounded-lg` at the top — and the bottom two are Tailwind's `rounded-sm`, one step under the badge, because `0.375rem` on a `0.625rem` line reads as a lozenge. The two steps below `md` leave the Tailwind type scale, which bottoms out at `text-xs`, because "smaller than a badge" is the whole point of asking for `xs` next to a logo.
 
 Without `badge()` only the text scales: there is no pill to scale.
@@ -164,7 +193,13 @@ use Filament\Support\Enums\VerticalAlignment;
 AppVersionPlugin::make()->verticalAlignment(VerticalAlignment::Start)   // or ->verticalAlignment('start')
 ```
 
-`start` pins the chip to the top, `end` to the bottom, `center` is the default.
+`start` pins the chip to the top, `end` to the bottom, `center` is the default. The three below are the sidebar drawer header, where the box is a fixed `4rem` and the difference is at its widest:
+
+| | |
+|---|---|
+| `start` | <img src="art/align-start.png" width="280" alt="The chip pinned to the top of the sidebar header"> |
+| `center` **(default)** | <img src="art/align-center.png" width="280" alt="The chip centred in the sidebar header"> |
+| `end` | <img src="art/align-end.png" width="280" alt="The chip pinned to the bottom of the sidebar header"> |
 
 The reference is **the row the chip renders into**, not the whole bar. In the topbar that row is as tall as the logo, so `start` levels the chip with the top of the logo. The sidebar drawer header is a fixed `4rem` (`.fi-sidebar-header` is `h-16`), so there `start` and `end` hug the header's own edges — the same setting is tighter on desktop than it is in the mobile drawer.
 
@@ -187,6 +222,15 @@ Values and attribute names you pass here reach the HTML **unescaped** — Larave
 // Escape it — the value comes from outside your code.
 ->extraAttributes(['data-tenant' => e($tenant->name)])
 ```
+
+`style` is the restyling route that needs no custom view — here a monospaced chip, still a `badge()` in the panel's own colour:
+
+```php
+->badge()->extraAttributes(['style' => 'font-family:ui-monospace,SFMono-Regular,monospace;letter-spacing:0.02em'])
+```
+
+<img src="art/extra-attributes.png" width="240" alt="A monospaced version pill">
+
 
 Two exceptions: `style` is folded into the package's own merged default and Laravel escapes it for you, and `tooltip()` goes through the escaped path, so `->tooltip($somethingUntrusted)` is safe.
 
@@ -219,6 +263,12 @@ The default is conservative because hooks such as `AUTH_LOGIN_FORM_AFTER` render
 
 The two default hooks are complementary by **breakpoint**, not by menu state: above `64rem` Filament hides the sidebar header, below it the topbar. So the topbar chip is what you see on desktop, the sidebar one after opening the drawer on mobile, and on desktop the sidebar copy sits in the DOM without being painted.
 
+| `TOPBAR_LOGO_AFTER` — desktop | `SIDEBAR_LOGO_AFTER` — the mobile drawer |
+|---|---|
+| <img src="art/hook-topbar.png" width="360" alt="The chip in the topbar on desktop"> | <img src="art/hook-sidebar-mobile.png" width="240" alt="The chip in the sidebar drawer header on mobile"> |
+
+On the sidebar hook the package emits one CSS rule alongside the chip. Filament gives that header's logo container `flex: 1 1 0%`, and `SIDEBAR_LOGO_AFTER` is the header's last child, so without it the chip lands against the opposite edge instead of next to the logo. The rule travels with the chip — nothing on other hooks, nothing when the chip is hidden, and no stylesheet to rebuild — and it selects the chip through `data-filament-app-version`, an attribute every chip carries and your own CSS or tests are free to use.
+
 Output on a shared hook follows **registration order**, so where `->plugin()` sits in your panel provider chain decides whether the chip lands before or after another plugin's output on the same hook:
 
 ```php
@@ -237,7 +287,7 @@ Swap those two lines and you get logo → menu → version.
 | `$version` | `string` | Exactly what the source gave, trimmed |
 | `$prefix` | `string` | Already resolved — empty when disabled or when `$version` starts with it |
 | `$tooltip` | `?string` | The `title` that ended up in the markup, or `null` |
-| `$attributes` | `ComponentAttributeBag` | Your `extraAttributes()` merged with the package's `style`, plus `title` when a tooltip is set |
+| `$attributes` | `ComponentAttributeBag` | Your `extraAttributes()` merged with the package's `style` and `data-filament-app-version`, plus `title` when a tooltip is set |
 
 ```blade
 <span {{ $attributes }}>{{ $prefix }}{{ $version }}</span>
@@ -246,6 +296,8 @@ Swap those two lines and you get logo → menu → version.
 **To restyle rather than replace, you do not need `->view()` at all** — [`size()`](#size) and [`verticalAlignment()`](#vertical-placement) cover the usual two, and `->extraAttributes(['style' => 'font-size:0.7rem;'])` overrides the package's own declarations for everything else. Inside a custom view, `{{ $attributes->except('style') }}` drops the package's styling, along with anything you passed through `extraAttributes(['style' => …])`.
 
 The package view also emits a visually-hidden `"<tooltip>: "` before the version, because the chip is a non-focusable `<span>` whose `title` is unreachable by keyboard. A custom view that omits it announces a bare `v1.19.16` to a screen reader.
+
+Print `{{ $attributes }}` on the chip's own element, or at least keep `data-filament-app-version` on it. The [sidebar header rule](#hook-order) selects on that attribute, and a custom view that drops it puts the chip back against the far edge of the mobile drawer.
 
 ## Using the version outside the panel
 
